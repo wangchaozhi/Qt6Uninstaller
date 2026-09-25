@@ -1,0 +1,16 @@
+{
+  "appName": "卸载器端到端测试",
+  "appId": "com.example.uninstaller-e2e-test",
+  "displayVersion": "test",
+  "publisher": "Local Test",
+  "installRootRelative": "..",
+  "processNames": [],
+  "userDataPaths": [],
+  "shortcutPaths": [],
+  "registryKeys": [],
+  "pathEntries": [],
+  "environmentVariables": [],
+  "removeInstallDirectory": true,
+  "removeUserDataByDefault": false,
+  "requiresAdmin": false
+}

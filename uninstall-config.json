@@ -1,0 +1,36 @@
+{
+  "appName": "示例应用",
+  "appId": "com.example.sampleapp",
+  "displayVersion": "1.0.0",
+  "publisher": "Example Company",
+  "installRootRelative": "..",
+  "processNames": [
+    "SampleApp.exe"
+  ],
+  "userDataPaths": [
+    "%APPDATA%\\ExampleCompany\\SampleApp",
+    "%LOCALAPPDATA%\\ExampleCompany\\SampleApp"
+  ],
+  "shortcutPaths": [
+    "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\示例应用.lnk",
+    "%USERPROFILE%\\Desktop\\示例应用.lnk"
+  ],
+  "registryKeys": [
+    "HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\SampleApp"
+  ],
+  "pathEntries": [
+    {
+      "scope": "user",
+      "value": "%LOCALAPPDATA%\\ExampleCompany\\SampleApp\\bin"
+    }
+  ],
+  "environmentVariables": [
+    {
+      "scope": "user",
+      "name": "SAMPLEAPP_HOME"
+    }
+  ],
+  "removeInstallDirectory": true,
+  "removeUserDataByDefault": false,
+  "requiresAdmin": false
+}

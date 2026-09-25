@@ -1,0 +1,25 @@
+# CMake build trees and generated packages
+/build/
+/package/
+/out/
+/cmake-build-*/
+
+# IDE and user-local settings
+/.vs/
+/.vscode/
+/.idea/
+*.user
+*.user.*
+CMakeUserPresets.json
+
+# Generated binaries and archives
+*.exe
+*.dll
+*.pdb
+*.obj
+*.zip
+
+# OS metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
