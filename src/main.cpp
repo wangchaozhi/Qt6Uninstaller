@@ -57,7 +57,7 @@ int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("Qt6 Uninstaller"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.1.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.2.0"));
     QCoreApplication::setOrganizationName(QStringLiteral("Example Company"));
 
     QCommandLineParser parser;

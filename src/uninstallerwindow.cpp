@@ -89,6 +89,23 @@ QString comparablePath(const QString &path)
 {
     return QDir::cleanPath(expandEnvironmentVariables(path).trimmed()).toLower();
 }
+
+struct CloseWindowsContext
+{
+    DWORD processId = 0;
+    bool closePosted = false;
+};
+
+BOOL CALLBACK postCloseToProcessWindow(HWND window, LPARAM parameter)
+{
+    auto *context = reinterpret_cast<CloseWindowsContext *>(parameter);
+    DWORD windowProcessId = 0;
+    GetWindowThreadProcessId(window, &windowProcessId);
+    if (windowProcessId == context->processId) {
+        context->closePosted = PostMessageW(window, WM_CLOSE, 0, 0) || context->closePosted;
+    }
+    return TRUE;
+}
 #endif
 }
 
@@ -222,7 +239,7 @@ void UninstallerWindow::beginUninstall()
             success = removeConfiguredPaths(m_config.userDataPaths, QStringLiteral("用户数据")) && success;
         }
 
-            m_progress->setValue(88);
+        m_progress->setValue(88);
         if (m_config.removeInstallDirectory) {
             appendLog(QStringLiteral("正在启动自清理程序……"));
             success = launchCleanupHelper() && success;
@@ -295,7 +312,18 @@ bool UninstallerWindow::stopConfiguredProcesses()
                 success = false;
                 continue;
             }
-            if (!TerminateProcess(process, 0) || WaitForSingleObject(process, 3000) == WAIT_FAILED) {
+
+            CloseWindowsContext context{entry.th32ProcessID, false};
+            EnumWindows(postCloseToProcessWindow, reinterpret_cast<LPARAM>(&context));
+            if (context.closePosted && WaitForSingleObject(process, 3000) == WAIT_OBJECT_0) {
+                appendLog(QStringLiteral("已正常关闭进程：%1").arg(executable));
+                CloseHandle(process);
+                continue;
+            }
+
+            appendLog(QStringLiteral("进程未及时退出，正在强制结束：%1").arg(executable));
+            if (!TerminateProcess(process, 0)
+                || WaitForSingleObject(process, 3000) != WAIT_OBJECT_0) {
                 appendLog(QStringLiteral("结束进程失败：%1").arg(executable));
                 success = false;
             }

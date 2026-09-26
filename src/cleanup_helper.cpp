@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <shellapi.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -48,6 +49,43 @@ void appendLog(const fs::path &path, const std::string &line)
     std::ofstream stream(path, std::ios::app);
     stream << line << '\n';
 }
+
+bool scheduleTreeForReboot(const fs::path &root, const fs::path &logPath)
+{
+    std::error_code error;
+    if (!fs::exists(root, error))
+        return !error;
+
+    std::vector<fs::path> entries;
+    fs::recursive_directory_iterator iterator(
+        root, fs::directory_options::skip_permission_denied, error);
+    const fs::recursive_directory_iterator end;
+    while (!error && iterator != end) {
+        entries.push_back(iterator->path());
+        iterator.increment(error);
+    }
+    if (error) {
+        appendLog(logPath, "Could not enumerate all remaining files for reboot cleanup.");
+        return false;
+    }
+
+    std::sort(entries.begin(), entries.end(), [](const fs::path &left, const fs::path &right) {
+        return left.native().size() > right.native().size();
+    });
+
+    bool scheduled = true;
+    for (const fs::path &entry : entries) {
+        if (!MoveFileExW(entry.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT))
+            scheduled = false;
+    }
+    if (!MoveFileExW(root.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT))
+        scheduled = false;
+
+    appendLog(logPath, scheduled
+        ? "Locked leftovers scheduled for removal after restart."
+        : "Failed to schedule every locked leftover for restart cleanup.");
+    return scheduled;
+}
 }
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
@@ -69,7 +107,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         return 3;
     }
 
-    const DWORD parentPid = static_cast<DWORD>(std::stoul(pidText));
+    DWORD parentPid = 0;
+    try {
+        parentPid = static_cast<DWORD>(std::stoul(pidText));
+    } catch (...) {
+        appendLog(logPath, "Invalid parent process identifier.");
+        return 3;
+    }
     if (HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, parentPid)) {
         WaitForSingleObject(parent, 30000);
         CloseHandle(parent);
@@ -88,12 +132,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int)
         std::this_thread::sleep_for(std::chrono::milliseconds(250));
     }
 
-    appendLog(logPath, removed ? "Install directory removed." : "Install directory cleanup failed.");
+    bool cleanupSucceeded = removed;
+    if (removed) {
+        appendLog(logPath, "Install directory removed.");
+    } else {
+        appendLog(logPath, "Immediate cleanup was incomplete.");
+        cleanupSucceeded = scheduleTreeForReboot(installDirectory, logPath);
+    }
 
     wchar_t selfPath[MAX_PATH]{};
     GetModuleFileNameW(nullptr, selfPath, MAX_PATH);
     MoveFileExW(selfPath, nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
     if (!helperDirectory.empty())
         MoveFileExW(helperDirectory.c_str(), nullptr, MOVEFILE_DELAY_UNTIL_REBOOT);
-    return removed ? 0 : 4;
+    return cleanupSucceeded ? 0 : 4;
 }
