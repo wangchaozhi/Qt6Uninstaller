@@ -14,6 +14,7 @@
 - 对磁盘根目录、用户主目录和非白名单注册表路径做安全拦截
 - 支持静默卸载、管理员自动提权、环境变量与 PATH 精确清理
 - 在 `%TEMP%\<appId>-uninstall.log` 保存诊断日志
+- 提供只读配置/部署验证模式，便于安装程序在发布前检查
 
 ## 配置
 
@@ -56,9 +57,11 @@ cmake --install build --prefix "%CD%\package"
 ```bat
 Qt6Uninstaller.exe --silent --keep-user-data
 Qt6Uninstaller.exe --silent --remove-user-data
+Qt6Uninstaller.exe --silent --validate-config
 ```
 
 成功退出码为 `0`；部分清理失败为 `2`；安全标记缺失为 `3`；提权失败为 `5`；命令行参数冲突为 `64`。
+验证结果保存在 `%TEMP%\<appId>-validation.log`；配置无法解析时写入 `%TEMP%\Qt6Uninstaller-validation.log`。验证模式不会停止进程、删除文件或修改注册表。
 
 ## 权限说明
 

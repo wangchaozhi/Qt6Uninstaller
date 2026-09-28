@@ -6,7 +6,11 @@
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QMessageBox>
+#include <QStandardPaths>
+#include <QTextStream>
 #include <QTimer>
 
 #include <optional>
@@ -17,6 +21,18 @@
 #endif
 
 namespace {
+void writeValidationReport(const QString &appId, const QString &message)
+{
+    const QString safeId = appId.isEmpty() ? QStringLiteral("Qt6Uninstaller") : appId;
+    const QString path = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+        .filePath(QStringLiteral("%1-validation.log").arg(safeId));
+    QFile file(path);
+    if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QTextStream stream(&file);
+        stream << message << u'\n';
+    }
+}
+
 #ifdef Q_OS_WIN
 bool isElevated()
 {
@@ -57,7 +73,7 @@ int main(int argc, char *argv[])
 {
     QApplication application(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("Qt6 Uninstaller"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("1.2.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral("1.3.0"));
     QCoreApplication::setOrganizationName(QStringLiteral("Example Company"));
 
     QCommandLineParser parser;
@@ -67,14 +83,21 @@ int main(int argc, char *argv[])
     const QCommandLineOption silentOption(QStringLiteral("silent"), QStringLiteral("静默卸载，不显示确认对话框。"));
     const QCommandLineOption removeDataOption(QStringLiteral("remove-user-data"), QStringLiteral("同时删除用户配置和缓存。"));
     const QCommandLineOption keepDataOption(QStringLiteral("keep-user-data"), QStringLiteral("保留用户配置和缓存。"));
+    const QCommandLineOption validateOption(QStringLiteral("validate-config"),
+        QStringLiteral("验证配置和部署文件，不执行卸载。"));
     parser.addOption(silentOption);
     parser.addOption(removeDataOption);
     parser.addOption(keepDataOption);
+    parser.addOption(validateOption);
     parser.process(application);
 
+    const bool silent = parser.isSet(silentOption);
+
     if (parser.isSet(removeDataOption) && parser.isSet(keepDataOption)) {
-        QMessageBox::critical(nullptr, QStringLiteral("参数错误"),
-            QStringLiteral("--remove-user-data 与 --keep-user-data 不能同时使用。"));
+        const QString message = QStringLiteral("--remove-user-data 与 --keep-user-data 不能同时使用。");
+        writeValidationReport(QString(), message);
+        if (!silent)
+            QMessageBox::critical(nullptr, QStringLiteral("参数错误"), message);
         return 64;
     }
 
@@ -83,8 +106,32 @@ int main(int argc, char *argv[])
     QString error;
     const UninstallConfig config = UninstallConfig::load(configPath, &error);
     if (!error.isEmpty()) {
-        QMessageBox::critical(nullptr, QStringLiteral("无法启动卸载器"), error);
+        writeValidationReport(QString(), error);
+        if (!silent)
+            QMessageBox::critical(nullptr, QStringLiteral("无法启动卸载器"), error);
         return 1;
+    }
+
+    if (parser.isSet(validateOption)) {
+        const QString installRoot = QDir::cleanPath(QDir(QCoreApplication::applicationDirPath())
+            .absoluteFilePath(config.installRootRelative));
+        QStringList problems;
+        if (!QFileInfo::exists(QDir(installRoot).filePath(QStringLiteral("uninstaller.marker"))))
+            problems.append(QStringLiteral("安装根目录缺少 uninstaller.marker。"));
+        if (!QFileInfo::exists(QDir(QCoreApplication::applicationDirPath())
+                .filePath(QStringLiteral("cleanup_helper.exe"))))
+            problems.append(QStringLiteral("卸载器目录缺少 cleanup_helper.exe。"));
+
+        const QString message = problems.isEmpty()
+            ? QStringLiteral("配置与部署文件验证通过。")
+            : problems.join(u'\n');
+        writeValidationReport(config.appId, message);
+        if (!silent) {
+            const auto icon = problems.isEmpty() ? QMessageBox::Information : QMessageBox::Critical;
+            QMessageBox box(icon, QStringLiteral("配置验证"), message, QMessageBox::Ok);
+            box.exec();
+        }
+        return problems.isEmpty() ? 0 : 3;
     }
 
 #ifdef Q_OS_WIN
@@ -105,7 +152,6 @@ int main(int argc, char *argv[])
     else if (parser.isSet(keepDataOption))
         removeDataOverride = false;
 
-    const bool silent = parser.isSet(silentOption);
     UninstallerWindow window(config, silent, removeDataOverride);
     if (silent)
         QTimer::singleShot(0, &window, &UninstallerWindow::startUninstall);

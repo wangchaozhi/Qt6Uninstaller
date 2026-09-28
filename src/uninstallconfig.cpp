@@ -1,6 +1,7 @@
 #include "uninstallconfig.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -8,42 +9,63 @@
 #include <QRegularExpression>
 
 namespace {
-QStringList readStringArray(const QJsonObject &object, const QString &name)
+QStringList readStringArray(const QJsonObject &object, const QString &name, bool *valid)
 {
     QStringList result;
-    const QJsonArray array = object.value(name).toArray();
+    const QJsonValue value = object.value(name);
+    if (!value.isUndefined() && !value.isArray()) {
+        *valid = false;
+        return result;
+    }
+    const QJsonArray array = value.toArray();
     for (const QJsonValue &entry : array) {
-        if (entry.isString() && !entry.toString().trimmed().isEmpty())
+        if (entry.isString() && !entry.toString().trimmed().isEmpty()) {
             result.append(entry.toString().trimmed());
+        } else {
+            *valid = false;
+        }
     }
     return result;
 }
 
-QList<ScopedPathEntry> readPathEntries(const QJsonObject &object)
+QList<ScopedPathEntry> readPathEntries(const QJsonObject &object, bool *valid)
 {
     QList<ScopedPathEntry> result;
-    for (const QJsonValue &entry : object.value(QStringLiteral("pathEntries")).toArray()) {
+    const QJsonValue arrayValue = object.value(QStringLiteral("pathEntries"));
+    if (!arrayValue.isUndefined() && !arrayValue.isArray()) {
+        *valid = false;
+        return result;
+    }
+    for (const QJsonValue &entry : arrayValue.toArray()) {
         const QJsonObject item = entry.toObject();
         const QString scope = item.value(QStringLiteral("scope")).toString().trimmed().toLower();
         const QString value = item.value(QStringLiteral("value")).toString().trimmed();
         if ((scope == QStringLiteral("user") || scope == QStringLiteral("machine")) && !value.isEmpty())
             result.append({scope, value});
+        else
+            *valid = false;
     }
     return result;
 }
 
-QList<ScopedVariable> readVariables(const QJsonObject &object)
+QList<ScopedVariable> readVariables(const QJsonObject &object, bool *valid)
 {
     static const QRegularExpression safeName(QStringLiteral("^[A-Za-z_][A-Za-z0-9_]{0,127}$"));
     QList<ScopedVariable> result;
-    for (const QJsonValue &entry : object.value(QStringLiteral("environmentVariables")).toArray()) {
+    const QJsonValue arrayValue = object.value(QStringLiteral("environmentVariables"));
+    if (!arrayValue.isUndefined() && !arrayValue.isArray()) {
+        *valid = false;
+        return result;
+    }
+    for (const QJsonValue &entry : arrayValue.toArray()) {
         const QJsonObject item = entry.toObject();
         const QString scope = item.value(QStringLiteral("scope")).toString().trimmed().toLower();
         const QString name = item.value(QStringLiteral("name")).toString().trimmed();
         if ((scope == QStringLiteral("user") || scope == QStringLiteral("machine"))
             && safeName.match(name).hasMatch()) {
             result.append({scope, name});
-        }
+        } else
+            *valid = false;
     }
     return result;
 }
@@ -71,12 +93,13 @@ UninstallConfig UninstallConfig::load(const QString &filePath, QString *errorMes
     config.displayVersion = object.value(QStringLiteral("displayVersion")).toString().trimmed();
     config.publisher = object.value(QStringLiteral("publisher")).toString().trimmed();
     config.installRootRelative = object.value(QStringLiteral("installRootRelative")).toString(QStringLiteral(".")).trimmed();
-    config.processNames = readStringArray(object, QStringLiteral("processNames"));
-    config.userDataPaths = readStringArray(object, QStringLiteral("userDataPaths"));
-    config.shortcutPaths = readStringArray(object, QStringLiteral("shortcutPaths"));
-    config.registryKeys = readStringArray(object, QStringLiteral("registryKeys"));
-    config.pathEntries = readPathEntries(object);
-    config.environmentVariables = readVariables(object);
+    bool arraysValid = true;
+    config.processNames = readStringArray(object, QStringLiteral("processNames"), &arraysValid);
+    config.userDataPaths = readStringArray(object, QStringLiteral("userDataPaths"), &arraysValid);
+    config.shortcutPaths = readStringArray(object, QStringLiteral("shortcutPaths"), &arraysValid);
+    config.registryKeys = readStringArray(object, QStringLiteral("registryKeys"), &arraysValid);
+    config.pathEntries = readPathEntries(object, &arraysValid);
+    config.environmentVariables = readVariables(object, &arraysValid);
     config.removeInstallDirectory = object.value(QStringLiteral("removeInstallDirectory")).toBool(true);
     config.removeUserDataByDefault = object.value(QStringLiteral("removeUserDataByDefault")).toBool(false);
     config.requiresAdmin = object.value(QStringLiteral("requiresAdmin")).toBool(false);
@@ -90,6 +113,28 @@ UninstallConfig UninstallConfig::load(const QString &filePath, QString *errorMes
         && config.installRootRelative != QStringLiteral("..")) {
         *errorMessage = QStringLiteral("installRootRelative 仅允许设置为 . 或 ..。");
         return {};
+    }
+    if (!arraysValid) {
+        *errorMessage = QStringLiteral("配置数组包含无效项目；请检查字符串、scope、value 和环境变量名称。");
+        return {};
+    }
+    for (const QString &processName : config.processNames) {
+        if (QFileInfo(processName).fileName() != processName
+            || !processName.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+            *errorMessage = QStringLiteral("processNames 只能包含以 .exe 结尾的文件名，不能包含路径。");
+            return {};
+        }
+    }
+    for (const QString &key : config.registryKeys) {
+        const bool allowed = key.startsWith(
+            QStringLiteral("HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"),
+            Qt::CaseInsensitive) || key.startsWith(
+            QStringLiteral("HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\"),
+            Qt::CaseInsensitive);
+        if (!allowed) {
+            *errorMessage = QStringLiteral("registryKeys 仅允许 Windows 卸载注册表分支。");
+            return {};
+        }
     }
 
     *errorMessage = QString();

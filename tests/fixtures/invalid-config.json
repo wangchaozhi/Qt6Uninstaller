@@ -1,0 +1,8 @@
+{
+  "appName": "无效配置测试",
+  "appId": "com.example.invalid-test",
+  "installRootRelative": "../..",
+  "processNames": ["..\\Unsafe.exe"],
+  "registryKeys": ["HKEY_CURRENT_USER\\Software\\Unsafe"],
+  "removeInstallDirectory": true
+}
